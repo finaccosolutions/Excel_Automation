@@ -1,18 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  Key, 
+  X, 
+  Info, 
+  AlertCircle, 
+  Loader2, 
+  RefreshCw, 
+  Trash2, 
+  MessageSquare,
+  Home
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
+const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, updateGeminiApiKey } = useAuth();
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (isOpen && user?.geminiApiKey) {
@@ -20,18 +34,20 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
     setError('');
-    setSuccess(false);
+    setSuccess('');
     setIsLoading(true);
 
     try {
       await updateGeminiApiKey(apiKey.trim());
-      setSuccess(true);
+      setSuccess('API key saved successfully!');
       setTimeout(() => {
         onClose();
-        setSuccess(false);
+        setSuccess('');
+        if (onSuccess) {
+          onSuccess();
+        }
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save API key');
@@ -40,83 +56,180 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleDelete = async () => {
+    setError('');
+    setSuccess('');
+    setIsDeleting(true);
+
+    try {
+      await updateGeminiApiKey('');
+      setSuccess('API key removed successfully!');
+      setApiKey('');
+      setTimeout(() => {
+        onClose();
+        setSuccess('');
+      }, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove API key');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (!isOpen) return null;
+
+  const existingKey = user?.geminiApiKey;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="bg-blue-600 text-white px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center">
-            <Key className="h-5 w-5 mr-2" />
-            <h3 className="font-semibold">Set Gemini API Key</h3>
-          </div>
-          <button 
-            onClick={onClose}
-            className="text-white hover:text-blue-100 transition-colors"
-            disabled={isLoading}
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md text-sm">
-              {error}
+      <div className="max-w-md w-full mx-4">
+        <div className="relative">
+          <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg blur opacity-25"></div>
+          <div className="relative bg-white p-8 rounded-lg shadow-xl border border-gray-100">
+            <button 
+              onClick={onClose}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="text-center mb-8">
+              <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                <Key className="w-8 h-8 text-blue-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {existingKey ? 'Update Your Gemini API Key' : 'Set Up Your Gemini API Key'}
+              </h2>
+              <p className="text-gray-600">
+                {existingKey 
+                  ? 'Update or remove your existing Gemini API key'
+                  : 'Enter your Gemini API key to start using the AI assistant'}
+              </p>
             </div>
-          )}
-          {success && (
-            <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md text-sm">
-              API key saved successfully!
+
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r-lg">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-700">
+                  <p className="font-medium mb-1">How to get your API key:</p>
+                  <ol className="list-decimal ml-4 space-y-1">
+                    <li>Visit the <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Google AI Studio</a></li>
+                    <li>Sign in with your Google account</li>
+                    <li>Create a new API key or use an existing one</li>
+                    <li>Copy and paste your API key here</li>
+                  </ol>
+                </div>
+              </div>
             </div>
-          )}
-          <div className="mb-6">
-            <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-1">
-              Gemini API Key
-            </label>
-            <input
-              type="password"
-              id="apiKey"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter your Gemini API key"
-              required
-              disabled={isLoading}
-            />
-            <p className="mt-2 text-sm text-gray-500">
-              You can get your API key from the{' '}
-              <a
-                href="https://makersuite.google.com/app/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800"
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+            )}
+
+            {success && (
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+                <Info className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <p className="text-green-700 text-sm">{success}</p>
+              </div>
+            )}
+
+            <div className="mb-6">
+              <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-2">
+                Gemini API Key
+              </label>
+              <input
+                type="password"
+                id="apiKey"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Gemini API key"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <button
+                onClick={handleSave}
+                disabled={isLoading || !apiKey.trim()}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Google AI Studio
-              </a>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    {existingKey ? (
+                      <>
+                        <RefreshCw className="w-5 h-5" />
+                        Update API Key
+                      </>
+                    ) : (
+                      <>
+                        <Key className="w-5 h-5" />
+                        Save API Key
+                      </>
+                    )}
+                  </>
+                )}
+              </button>
+
+              {existingKey && (
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="w-full bg-red-50 text-red-600 font-medium py-3 px-4 rounded-lg hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-red-200"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-5 h-5" />
+                      Delete API Key
+                    </>
+                  )}
+                </button>
+              )}
+
+              <div className="flex gap-4 mt-6">
+                {existingKey ? (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      navigate('/chat');
+                    }}
+                    className="flex-1 bg-blue-50 text-blue-600 font-medium py-3 px-4 rounded-lg hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center justify-center gap-2 border border-blue-200"
+                  >
+                    <MessageSquare className="w-5 h-5" />
+                    Go to Chat
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      navigate('/');
+                    }}
+                    className="flex-1 bg-gray-50 text-gray-600 font-medium py-3 px-4 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 flex items-center justify-center gap-2 border border-gray-200"
+                  >
+                    <Home className="w-5 h-5" />
+                    Back to Home
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-gray-500 text-center">
+              Your API key will be securely stored and used only for your account.
             </p>
           </div>
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-              disabled={isLoading}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md ${
-                isLoading 
-                  ? 'bg-blue-400 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-              disabled={isLoading}
-            >
-              {isLoading ? 'Saving...' : 'Save API Key'}
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   );

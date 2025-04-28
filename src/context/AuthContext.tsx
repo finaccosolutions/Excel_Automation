@@ -17,7 +17,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const supabase: SupabaseClient = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      storage: window.localStorage,
+      storageKey: 'supabase.auth.token',
+    }
+  }
 );
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -27,7 +36,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [signUpTimer, setSignUpTimer] = useState(0);
 
   useEffect(() => {
-    // Check active sessions and subscribe to auth changes
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUserData(session.user);
@@ -78,21 +86,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setUserData = async (supabaseUser: SupabaseUser) => {
     try {
-      // First try to get the existing profile
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', supabaseUser.id)
-        .maybeSingle();
+        .single();
 
-      if (error) {
+      if (error && error.code !== 'PGRST116') {
         throw error;
       }
 
-      // If no profile exists, create one
       if (!profile) {
         await createProfile(supabaseUser.id);
-        // After creating, set user with default values
         setUser({
           id: supabaseUser.id,
           email: supabaseUser.email!,
@@ -101,7 +106,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // If profile exists, set user with profile data
       setUser({
         id: supabaseUser.id,
         email: supabaseUser.email!,
@@ -109,7 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (error) {
       console.error('Error in setUserData:', error);
-      // Set user with basic data if there's an error
       setUser({
         id: supabaseUser.id,
         email: supabaseUser.email!,
@@ -119,8 +122,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        await setUserData(data.user);
+      }
+    } catch (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
   };
 
   const signUp = async (email: string, password: string) => {
@@ -129,30 +145,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
       
       if (signUpError) {
         if (signUpError.message.includes('rate_limit')) {
           setIsSignUpDisabled(true);
-          // Increase timer to 60 seconds to account for Supabase's 51-second limit
           setSignUpTimer(60);
         }
         throw signUpError;
       }
 
       if (data.user) {
-        // Profile will be created automatically by the database trigger
+        await setUserData(data.user);
         setIsSignUpDisabled(true);
-        setSignUpTimer(60); // Set cooldown after successful signup
+        setSignUpTimer(60);
       }
     } catch (error) {
+      console.error('Sign up error:', error);
       throw error;
     }
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUser(null);
+    } catch (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    }
   };
 
   const updateGeminiApiKey = async (apiKey: string) => {

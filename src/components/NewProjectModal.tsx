@@ -3,6 +3,8 @@ import { X, FileSpreadsheet } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import LoginModal from './Auth/LoginModal';
+import ApiKeyModal from './Auth/ApiKeyModal';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -12,20 +14,31 @@ interface NewProjectModalProps {
 const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const { createNewProject } = useProject();
   const navigate = useNavigate();
   const { user } = useAuth();
 
   useEffect(() => {
-    if (isOpen && !user) {
-      navigate('/');
+    if (isOpen) {
+      if (!user) {
+        setShowLoginModal(true);
+      } else if (!user.geminiApiKey) {
+        setShowApiKeyModal(true);
+      }
     }
-  }, [isOpen, user, navigate]);
+  }, [isOpen, user]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      navigate('/');
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!user.geminiApiKey) {
+      setShowApiKeyModal(true);
       return;
     }
 
@@ -39,7 +52,40 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
     }
   };
 
-  if (!isOpen || !user) return null;
+  const handleLoginSuccess = () => {
+    setShowLoginModal(false);
+    if (!user?.geminiApiKey) {
+      setShowApiKeyModal(true);
+    }
+  };
+
+  const handleApiKeySuccess = () => {
+    setShowApiKeyModal(false);
+    // Continue with project creation if title is set
+    if (title.trim()) {
+      handleSubmit(new Event('submit') as unknown as React.FormEvent);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  if (showLoginModal) {
+    return <LoginModal isOpen={true} onClose={() => {
+      setShowLoginModal(false);
+      onClose();
+    }} />;
+  }
+
+  if (showApiKeyModal) {
+    return <ApiKeyModal 
+      isOpen={true} 
+      onClose={() => {
+        setShowApiKeyModal(false);
+        onClose();
+      }}
+      onSuccess={handleApiKeySuccess}
+    />;
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
