@@ -22,9 +22,7 @@ const supabase: SupabaseClient = createClient(
     auth: {
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: true,
-      storage: window.localStorage,
-      storageKey: 'supabase.auth.token',
+      detectSessionInUrl: false
     }
   }
 );
@@ -36,29 +34,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [signUpTimer, setSignUpTimer] = useState(0);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUserData(session.user);
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await setUserData(session.user);
+        }
+      } catch (error) {
+        console.error('Error checking auth session:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await setUserData(session.user);
-      } else {
+      try {
+        if (session?.user) {
+          await setUserData(session.user);
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Error handling auth state change:', error);
         setUser(null);
       }
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     let interval: number;
     if (isSignUpDisabled && signUpTimer > 0) {
-      interval = setInterval(() => {
+      interval = window.setInterval(() => {
         setSignUpTimer((prev) => {
           if (prev <= 1) {
             setIsSignUpDisabled(false);
@@ -68,48 +81,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [isSignUpDisabled, signUpTimer]);
-
-  const createProfile = async (userId: string) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .insert([{ id: userId }]);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error creating profile:', error);
-      throw error;
-    }
-  };
 
   const setUserData = async (supabaseUser: SupabaseUser) => {
     try {
-      const { data: profile, error } = await supabase
+      // First, check if profile exists
+      const { data: profile, error: fetchError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('gemini_api_key')
         .eq('id', supabaseUser.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching profile:', fetchError);
+        // Create profile if it doesn't exist
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert([{ id: supabaseUser.id }]);
 
-      if (!profile) {
-        await createProfile(supabaseUser.id);
-        setUser({
-          id: supabaseUser.id,
-          email: supabaseUser.email!,
-          geminiApiKey: null
-        });
-        return;
+        if (insertError) throw insertError;
       }
 
       setUser({
         id: supabaseUser.id,
         email: supabaseUser.email!,
-        geminiApiKey: profile.gemini_api_key
+        geminiApiKey: profile?.gemini_api_key || null
       });
     } catch (error) {
       console.error('Error in setUserData:', error);
@@ -149,17 +146,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
       });
-      
-      if (signUpError) {
-        if (signUpError.message.includes('rate_limit')) {
+
+      if (error) {
+        if (error.message.includes('rate_limit')) {
           setIsSignUpDisabled(true);
           setSignUpTimer(60);
         }
-        throw signUpError;
+        throw error;
       }
 
       if (data.user) {
@@ -177,7 +174,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+      
+      // Clear user state and local storage
       setUser(null);
+      window.localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -192,28 +192,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ gemini_api_key: apiKey })
-        .eq('id', user.id);
+        .upsert({ 
+          id: user.id,
+          gemini_api_key: apiKey,
+          updated_at: new Date().toISOString()
+        });
 
-      if (error) {
-        return { error: error.message };
-      }
+      if (error) throw error;
 
-      setUser({ ...user, geminiApiKey: apiKey });
+      // Update local user state
+      setUser(prevUser => prevUser ? {
+        ...prevUser,
+        geminiApiKey: apiKey
+      } : null);
+
       return {};
     } catch (error) {
       console.error('Error updating Gemini API key:', error);
-      return { error: 'Failed to update API key' };
+      return { 
+        error: error instanceof Error ? error.message : 'Failed to update API key'
+      };
     }
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
-      signIn, 
-      signUp, 
-      signOut, 
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      signIn,
+      signUp,
+      signOut,
       updateGeminiApiKey,
       isSignUpDisabled,
       signUpTimer
