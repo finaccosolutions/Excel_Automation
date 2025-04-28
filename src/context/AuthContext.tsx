@@ -183,16 +183,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { error } = await supabase
+      // First, check if the profile exists
+      const { data: existingProfile, error: checkError } = await supabase
         .from('profiles')
-        .update({ 
-          gemini_api_key: apiKey,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id);
+        .select('id')
+        .eq('id', user.id)
+        .single();
 
-      if (error) throw error;
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
 
+      let updateError;
+      if (!existingProfile) {
+        // If profile doesn't exist, create it
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert([{ 
+            id: user.id,
+            gemini_api_key: apiKey,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+        updateError = insertError;
+      } else {
+        // If profile exists, update it
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update({ 
+            gemini_api_key: apiKey,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+        updateError = updateErr;
+      }
+
+      if (updateError) throw updateError;
+
+      // Update local state
       setUser(prevUser => prevUser ? {
         ...prevUser,
         geminiApiKey: apiKey
