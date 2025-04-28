@@ -56,8 +56,12 @@ const ChatContainer: React.FC = () => {
       updateVbaCode(vbaCode);
     } catch (error) {
       console.error('Error generating VBA code:', error);
+      const errorMessage = error instanceof Error 
+        ? error.message
+        : 'An unexpected error occurred while generating VBA code';
+      
       addMessage(
-        "Sorry, I couldn't generate VBA code. Please try again with different requirements.",
+        `Sorry, I couldn't generate VBA code: ${errorMessage}. Please check your API key or try again with different requirements.`,
         'assistant'
       );
     } finally {

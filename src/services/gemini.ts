@@ -45,7 +45,7 @@ export const createGeminiChat = (apiKey: string) => {
       }
     } catch (error) {
       console.error('Error generating VBA code:', error);
-      throw new Error('Failed to generate VBA code. Please try again.');
+      throw error; // Propagate the original error for better error handling
     }
   };
 
