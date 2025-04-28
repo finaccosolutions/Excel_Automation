@@ -35,12 +35,20 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSuccess })
   }, [isOpen, user]);
 
   const handleSave = async () => {
+    if (!apiKey.trim()) {
+      setError('Please enter an API key');
+      return;
+    }
+
     setError('');
     setSuccess('');
     setIsLoading(true);
 
     try {
-      await updateGeminiApiKey(apiKey.trim());
+      const result = await updateGeminiApiKey(apiKey.trim());
+      if (result?.error) {
+        throw new Error(result.error);
+      }
       setSuccess('API key saved successfully!');
       setTimeout(() => {
         onClose();
@@ -62,7 +70,10 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSuccess })
     setIsDeleting(true);
 
     try {
-      await updateGeminiApiKey('');
+      const result = await updateGeminiApiKey('');
+      if (result?.error) {
+        throw new Error(result.error);
+      }
       setSuccess('API key removed successfully!');
       setApiKey('');
       setTimeout(() => {

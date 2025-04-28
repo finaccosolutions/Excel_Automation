@@ -32,14 +32,17 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
         }
         await signUp(email, password);
       } else {
-        await signIn(email, password);
+        const result = await signIn(email, password);
+        if (result?.error) {
+          throw new Error(result.error);
+        }
       }
       setEmail('');
       setPassword('');
       onClose();
     } catch (err) {
       console.error('Auth error:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred during authentication');
+      setError(err instanceof Error ? err.message : 'Invalid email or password');
     } finally {
       setIsLoading(false);
     }

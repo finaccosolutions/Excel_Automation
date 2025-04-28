@@ -5,10 +5,10 @@ import { User } from '../types';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateGeminiApiKey: (apiKey: string) => Promise<void>;
+  updateGeminiApiKey: (apiKey: string) => Promise<{ error?: string }>;
   isSignUpDisabled: boolean;
   signUpTimer: number;
 }
@@ -128,14 +128,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        return { error: error.message };
+      }
 
       if (data.user) {
         await setUserData(data.user);
       }
+
+      return {};
     } catch (error) {
       console.error('Sign in error:', error);
-      throw error;
+      return { error: 'An unexpected error occurred' };
     }
   };
 
@@ -181,7 +185,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateGeminiApiKey = async (apiKey: string) => {
-    if (!user) return;
+    if (!user) {
+      return { error: 'User not authenticated' };
+    }
 
     try {
       const { error } = await supabase
@@ -189,12 +195,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update({ gemini_api_key: apiKey })
         .eq('id', user.id);
 
-      if (error) throw error;
+      if (error) {
+        return { error: error.message };
+      }
 
       setUser({ ...user, geminiApiKey: apiKey });
+      return {};
     } catch (error) {
       console.error('Error updating Gemini API key:', error);
-      throw error;
+      return { error: 'Failed to update API key' };
     }
   };
 
