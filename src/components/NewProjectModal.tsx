@@ -18,17 +18,22 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const { createNewProject } = useProject();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !loading) {
       if (!user) {
         setShowLoginModal(true);
+        setShowApiKeyModal(false);
       } else if (!user.geminiApiKey) {
         setShowApiKeyModal(true);
+        setShowLoginModal(false);
+      } else {
+        setShowLoginModal(false);
+        setShowApiKeyModal(false);
       }
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, loading]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +51,6 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
       createNewProject(title, description);
       navigate('/chat');
       onClose();
-      // Reset form
       setTitle('');
       setDescription('');
     }
@@ -61,19 +65,28 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
 
   const handleApiKeySuccess = () => {
     setShowApiKeyModal(false);
-    // Continue with project creation if title is set
     if (title.trim()) {
       handleSubmit(new Event('submit') as unknown as React.FormEvent);
     }
   };
 
-  if (!isOpen) return null;
+  if (loading) {
+    return null;
+  }
+
+  if (!isOpen) {
+    return null;
+  }
 
   if (showLoginModal) {
-    return <LoginModal isOpen={true} onClose={() => {
-      setShowLoginModal(false);
-      onClose();
-    }} />;
+    return <LoginModal 
+      isOpen={true} 
+      onClose={() => {
+        setShowLoginModal(false);
+        onClose();
+      }}
+      onSuccess={handleLoginSuccess}
+    />;
   }
 
   if (showApiKeyModal) {

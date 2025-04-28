@@ -32,6 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isSignUpDisabled, setIsSignUpDisabled] = useState(false);
   const [signUpTimer, setSignUpTimer] = useState(0);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -39,17 +40,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           await setUserData(session.user);
+        } else {
+          setUser(null);
         }
       } catch (error) {
         console.error('Error checking auth session:', error);
+        setUser(null);
       } finally {
         setLoading(false);
+        setAuthInitialized(true);
       }
     };
 
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!authInitialized) return;
+
+      setLoading(true);
       try {
         if (session?.user) {
           await setUserData(session.user);
@@ -59,14 +67,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error('Error handling auth state change:', error);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [authInitialized]);
 
   useEffect(() => {
     let interval: number;
@@ -113,6 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string) => {
+    setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -131,6 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Sign in error:', error);
       return { error: 'An unexpected error occurred' };
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -139,6 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(`Please wait ${signUpTimer} seconds before trying again`);
     }
 
+    setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -161,10 +174,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Sign up error:', error);
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
   const signOut = async () => {
+    setLoading(true);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
@@ -174,6 +190,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -182,8 +200,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: 'User not authenticated' };
     }
 
+    setLoading(true);
     try {
-      // First, check if the profile exists
       const { data: existingProfile, error: checkError } = await supabase
         .from('profiles')
         .select('id')
@@ -196,7 +214,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       let updateError;
       if (!existingProfile) {
-        // If profile doesn't exist, create it
         const { error: insertError } = await supabase
           .from('profiles')
           .insert([{ 
@@ -207,7 +224,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }]);
         updateError = insertError;
       } else {
-        // If profile exists, update it
         const { error: updateErr } = await supabase
           .from('profiles')
           .update({ 
@@ -220,7 +236,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (updateError) throw updateError;
 
-      // Update local state
       setUser(prevUser => prevUser ? {
         ...prevUser,
         geminiApiKey: apiKey
@@ -232,6 +247,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { 
         error: error instanceof Error ? error.message : 'Failed to update API key'
       };
+    } finally {
+      setLoading(false);
     }
   };
 
