@@ -31,7 +31,13 @@ export const createGeminiChat = (apiKey: string) => {
            "explanation": "detailed explanation of how to use the code",
            "operation": "create_vba|add_formula|add_button",
            "content": "the code or configuration"
-         }`
+         }
+         
+         IMPORTANT:
+         1. If the request requires macros, use operation: "create_vba"
+         2. If it's a simple formula, use operation: "add_formula"
+         3. For button creation, use operation: "add_button"
+         4. Make sure the code is properly formatted and includes error handling`
       );
 
       const response = result.response.text();
@@ -40,18 +46,27 @@ export const createGeminiChat = (apiKey: string) => {
         const cleanedResponse = response.replace(/```json\n?|```/g, '').trim();
         const parsed = JSON.parse(cleanedResponse);
         
-        // Generate Excel file with the code
-        const { error } = await generateExcelFile(parsed.operation, parsed.content);
-        if (error) {
-          throw new Error(error);
+        if (!parsed.operation || !parsed.content) {
+          throw new Error('Invalid AI response format');
         }
+
+        // Validate operation type
+        if (!['create_vba', 'add_formula', 'add_button'].includes(parsed.operation)) {
+          throw new Error('Invalid operation type');
+        }
+
+        // Generate Excel file with the code
+        await generateExcelFile(parsed.operation, parsed.content);
 
         return {
           vbaCode: parsed.vbaCode,
           response: parsed.explanation
         };
       } catch (error) {
-        throw new Error(`Failed to process response: ${error.message}`);
+        if (error.message.includes('Failed to generate Excel file')) {
+          throw new Error('Failed to create Excel file. Please try again.');
+        }
+        throw new Error(`Failed to process AI response: ${error.message}`);
       }
     } catch (error) {
       console.error('Error generating VBA code:', error);
