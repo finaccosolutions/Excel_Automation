@@ -8,7 +8,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateGeminiApiKey: (apiKey: string) => Promise<{ error?: string }>;
+  updateGeminiApiKey: (apiKey: string | null) => Promise<{ error?: string }>;
   isSignUpDisabled: boolean;
   signUpTimer: number;
 }
@@ -86,7 +86,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setUserData = async (supabaseUser: SupabaseUser) => {
     try {
-      // First, check if profile exists
       const { data: profile, error: fetchError } = await supabase
         .from('profiles')
         .select('gemini_api_key')
@@ -95,12 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (fetchError && fetchError.code !== 'PGRST116') {
         console.error('Error fetching profile:', fetchError);
-        // Create profile if it doesn't exist
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert([{ id: supabaseUser.id }]);
-
-        if (insertError) throw insertError;
+        throw fetchError;
       }
 
       setUser({
@@ -175,7 +169,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
-      // Clear user state and local storage
       setUser(null);
       window.localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
     } catch (error) {
@@ -184,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateGeminiApiKey = async (apiKey: string) => {
+  const updateGeminiApiKey = async (apiKey: string | null) => {
     if (!user) {
       return { error: 'User not authenticated' };
     }
@@ -192,15 +185,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { error } = await supabase
         .from('profiles')
-        .upsert({ 
-          id: user.id,
+        .update({ 
           gemini_api_key: apiKey,
           updated_at: new Date().toISOString()
-        });
+        })
+        .eq('id', user.id);
 
       if (error) throw error;
 
-      // Update local user state
       setUser(prevUser => prevUser ? {
         ...prevUser,
         geminiApiKey: apiKey

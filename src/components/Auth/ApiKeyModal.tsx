@@ -32,7 +32,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSuccess })
     if (isOpen && user?.geminiApiKey) {
       setApiKey(user.geminiApiKey);
     }
-  }, [isOpen, user]);
+  }, [isOpen, user?.geminiApiKey]);
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
@@ -70,7 +70,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onSuccess })
     setIsDeleting(true);
 
     try {
-      const result = await updateGeminiApiKey('');
+      const result = await updateGeminiApiKey(null);
       if (result?.error) {
         throw new Error(result.error);
       }
