@@ -13,6 +13,7 @@ const ChatContainer: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -20,14 +21,15 @@ const ChatContainer: React.FC = () => {
       return;
     }
 
-    if (!user.geminiApiKey) {
-      // Show API key modal through NavBar
+    // Only show API key modal if user has no API key
+    if (!user.geminiApiKey && !showApiKeyModal) {
+      setShowApiKeyModal(true);
       const apiKeyButton = document.querySelector('[data-testid="api-key-button"]');
       if (apiKeyButton instanceof HTMLElement) {
         apiKeyButton.click();
       }
     }
-  }, [user, navigate]);
+  }, [user, navigate, showApiKeyModal]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,11 +59,11 @@ const ChatContainer: React.FC = () => {
     } catch (error) {
       console.error('Error generating VBA code:', error);
       const errorMessage = error instanceof Error 
-        ? error.message
-        : 'An unexpected error occurred while generating VBA code';
+        ? `${error.message}. Please ensure your API key is valid and has access to the Gemini API.`
+        : 'An unexpected error occurred while generating VBA code. Please check your API key and try again.';
       
       addMessage(
-        `Sorry, I couldn't generate VBA code: ${errorMessage}. Please check your API key or try again with different requirements.`,
+        `Sorry, I couldn't generate VBA code: ${errorMessage}`,
         'assistant'
       );
     } finally {

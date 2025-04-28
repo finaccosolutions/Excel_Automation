@@ -3,7 +3,10 @@ import { Message } from '../types';
 
 export const createGeminiChat = (apiKey: string) => {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  // Using the correct model name for the latest API version
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash"
+  });
 
   const generateVbaCode = async (prompt: string, history: Message[]) => {
     try {

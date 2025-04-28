@@ -22,7 +22,21 @@ const supabase: SupabaseClient = createClient(
     auth: {
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false
+      detectSessionInUrl: false,
+      storage: {
+        getItem: (key) => {
+          const value = globalThis.localStorage?.getItem(key) ?? null;
+          return Promise.resolve(value);
+        },
+        setItem: (key, value) => {
+          globalThis.localStorage?.setItem(key, value);
+          return Promise.resolve();
+        },
+        removeItem: (key) => {
+          globalThis.localStorage?.removeItem(key);
+          return Promise.resolve();
+        },
+      },
     }
   }
 );
@@ -34,18 +48,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [signUpTimer, setSignUpTimer] = useState(0);
   const [authInitialized, setAuthInitialized] = useState(false);
 
+  const setUserData = async (supabaseUser: SupabaseUser) => {
+    try {
+      const { data: profile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('gemini_api_key')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching profile:', fetchError);
+        throw fetchError;
+      }
+
+      const userData = {
+        id: supabaseUser.id,
+        email: supabaseUser.email!,
+        geminiApiKey: profile?.gemini_api_key || null
+      };
+
+      setUser(userData);
+      // Store user data in localStorage for persistence
+      localStorage.setItem('userData', JSON.stringify(userData));
+    } catch (error) {
+      console.error('Error in setUserData:', error);
+      const userData = {
+        id: supabaseUser.id,
+        email: supabaseUser.email!,
+        geminiApiKey: null
+      };
+      setUser(userData);
+      localStorage.setItem('userData', JSON.stringify(userData));
+    }
+  };
+
+  // Handle storage events for cross-tab synchronization
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'userData') {
+        if (event.newValue) {
+          setUser(JSON.parse(event.newValue));
+        } else {
+          setUser(null);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
+        // Try to get stored user data first
+        const storedUserData = localStorage.getItem('userData');
+        if (storedUserData) {
+          setUser(JSON.parse(storedUserData));
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           await setUserData(session.user);
         } else {
           setUser(null);
+          localStorage.removeItem('userData');
         }
       } catch (error) {
         console.error('Error checking auth session:', error);
         setUser(null);
+        localStorage.removeItem('userData');
       } finally {
         setLoading(false);
         setAuthInitialized(true);
@@ -57,16 +129,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!authInitialized) return;
 
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        localStorage.removeItem('userData');
+        return;
+      }
+
       setLoading(true);
       try {
         if (session?.user) {
           await setUserData(session.user);
         } else {
           setUser(null);
+          localStorage.removeItem('userData');
         }
       } catch (error) {
         console.error('Error handling auth state change:', error);
         setUser(null);
+        localStorage.removeItem('userData');
       } finally {
         setLoading(false);
       }
@@ -92,34 +172,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return () => window.clearInterval(interval);
   }, [isSignUpDisabled, signUpTimer]);
-
-  const setUserData = async (supabaseUser: SupabaseUser) => {
-    try {
-      const { data: profile, error: fetchError } = await supabase
-        .from('profiles')
-        .select('gemini_api_key')
-        .eq('id', supabaseUser.id)
-        .single();
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Error fetching profile:', fetchError);
-        throw fetchError;
-      }
-
-      setUser({
-        id: supabaseUser.id,
-        email: supabaseUser.email!,
-        geminiApiKey: profile?.gemini_api_key || null
-      });
-    } catch (error) {
-      console.error('Error in setUserData:', error);
-      setUser({
-        id: supabaseUser.id,
-        email: supabaseUser.email!,
-        geminiApiKey: null
-      });
-    }
-  };
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);
@@ -180,18 +232,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    setLoading(true);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
       setUser(null);
-      window.localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
+      localStorage.removeItem('userData');
+      window.location.reload(); // Reload to ensure clean state
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -202,44 +252,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLoading(true);
     try {
-      const { data: existingProfile, error: checkError } = await supabase
+      const { error: updateError } = await supabase
         .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        throw checkError;
-      }
-
-      let updateError;
-      if (!existingProfile) {
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert([{ 
-            id: user.id,
-            gemini_api_key: apiKey,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }]);
-        updateError = insertError;
-      } else {
-        const { error: updateErr } = await supabase
-          .from('profiles')
-          .update({ 
-            gemini_api_key: apiKey,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', user.id);
-        updateError = updateErr;
-      }
+        .update({ 
+          gemini_api_key: apiKey,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
 
       if (updateError) throw updateError;
 
-      setUser(prevUser => prevUser ? {
-        ...prevUser,
+      const updatedUser = {
+        ...user,
         geminiApiKey: apiKey
-      } : null);
+      };
+      setUser(updatedUser);
+      localStorage.setItem('userData', JSON.stringify(updatedUser));
 
       return {};
     } catch (error) {
