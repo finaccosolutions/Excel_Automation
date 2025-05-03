@@ -23,20 +23,7 @@ const supabase: SupabaseClient = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
-      storage: {
-        getItem: (key) => {
-          const value = globalThis.localStorage?.getItem(key) ?? null;
-          return Promise.resolve(value);
-        },
-        setItem: (key, value) => {
-          globalThis.localStorage?.setItem(key, value);
-          return Promise.resolve();
-        },
-        removeItem: (key) => {
-          globalThis.localStorage?.removeItem(key);
-          return Promise.resolve();
-        },
-      },
+      storage: window.localStorage
     }
   }
 );
@@ -46,9 +33,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isSignUpDisabled, setIsSignUpDisabled] = useState(false);
   const [signUpTimer, setSignUpTimer] = useState(0);
-  const [authInitialized, setAuthInitialized] = useState(false);
 
-  const setUserData = async (supabaseUser: SupabaseUser) => {
+  const setUserData = async (supabaseUser: SupabaseUser | null) => {
+    if (!supabaseUser) {
+      setUser(null);
+      localStorage.removeItem('userData');
+      return;
+    }
+
     try {
       const { data: profile, error: fetchError } = await supabase
         .from('profiles')
@@ -61,18 +53,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw fetchError;
       }
 
-      const userData = {
+      const userData: User = {
         id: supabaseUser.id,
         email: supabaseUser.email!,
         geminiApiKey: profile?.gemini_api_key || null
       };
 
       setUser(userData);
-      // Store user data in localStorage for persistence
       localStorage.setItem('userData', JSON.stringify(userData));
     } catch (error) {
       console.error('Error in setUserData:', error);
-      const userData = {
+      const userData: User = {
         id: supabaseUser.id,
         email: supabaseUser.email!,
         geminiApiKey: null
@@ -82,31 +73,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Handle storage events for cross-tab synchronization
   useEffect(() => {
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'userData') {
-        if (event.newValue) {
-          setUser(JSON.parse(event.newValue));
+    const initAuth = async () => {
+      try {
+        setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          await setUserData(session.user);
         } else {
           setUser(null);
+          localStorage.removeItem('userData');
         }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+        setUser(null);
+        localStorage.removeItem('userData');
+      } finally {
+        setLoading(false);
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    initAuth();
 
-  useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        // Try to get stored user data first
-        const storedUserData = localStorage.getItem('userData');
-        if (storedUserData) {
-          setUser(JSON.parse(storedUserData));
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await setUserData(session.user);
+      } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+        setUser(null);
+        localStorage.removeItem('userData');
+      }
+    });
 
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           await setUserData(session.user);
@@ -114,48 +114,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           localStorage.removeItem('userData');
         }
-      } catch (error) {
-        console.error('Error checking auth session:', error);
-        setUser(null);
-        localStorage.removeItem('userData');
-      } finally {
-        setLoading(false);
-        setAuthInitialized(true);
       }
     };
 
-    initializeAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!authInitialized) return;
-
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        localStorage.removeItem('userData');
-        return;
-      }
-
-      setLoading(true);
-      try {
-        if (session?.user) {
-          await setUserData(session.user);
-        } else {
-          setUser(null);
-          localStorage.removeItem('userData');
-        }
-      } catch (error) {
-        console.error('Error handling auth state change:', error);
-        setUser(null);
-        localStorage.removeItem('userData');
-      } finally {
-        setLoading(false);
-      }
-    });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [authInitialized]);
+  }, []);
 
   useEffect(() => {
     let interval: number;
@@ -174,7 +142,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isSignUpDisabled, signUpTimer]);
 
   const signIn = async (email: string, password: string) => {
-    setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -193,8 +160,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Sign in error:', error);
       return { error: 'An unexpected error occurred' };
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -203,7 +168,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(`Please wait ${signUpTimer} seconds before trying again`);
     }
 
-    setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -226,8 +190,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Sign up error:', error);
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -238,7 +200,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(null);
       localStorage.removeItem('userData');
-      window.location.reload(); // Reload to ensure clean state
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -250,7 +211,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: 'User not authenticated' };
     }
 
-    setLoading(true);
     try {
       const { error: updateError } = await supabase
         .from('profiles')
@@ -275,8 +235,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { 
         error: error instanceof Error ? error.message : 'Failed to update API key'
       };
-    } finally {
-      setLoading(false);
     }
   };
 
