@@ -163,6 +163,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Add this function inside your AuthProvider component
+const checkSessionPersisted = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    setUser(null);
+    localStorage.removeItem('userData');
+  }
+};
+
+// Add this useEffect hook
+useEffect(() => {
+  const handleStorageEvent = async (e: StorageEvent) => {
+    if (e.key === 'sb-auth-token') {
+      await checkSessionPersisted();
+    }
+  };
+
+  window.addEventListener('storage', handleStorageEvent);
+  return () => window.removeEventListener('storage', handleStorageEvent);
+}, []);
+
   const signUp = async (email: string, password: string) => {
     if (isSignUpDisabled) {
       throw new Error(`Please wait ${signUpTimer} seconds before trying again`);

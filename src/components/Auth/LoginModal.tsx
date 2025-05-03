@@ -40,11 +40,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
       }
       setEmail('');
       setPassword('');
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        onClose();
-      }
+      onSuccess?.();
     } catch (err) {
       console.error('Auth error:', err);
       setError(err instanceof Error ? err.message : 'Invalid email or password');
@@ -53,7 +49,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
     }
   };
 
-  if (!isOpen || loading) return null;
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
