@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { createClient, SupabaseClient, User as SupabaseUser } from '@supabase/supabase-js';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 import { User } from '../types';
+import { supabase, getCurrentSession, getCurrentUser } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -15,54 +16,33 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const supabase: SupabaseClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: false,
-      storage: window.localStorage
-    }
-  }
-);
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSignUpDisabled, setIsSignUpDisabled] = useState(false);
   const [signUpTimer, setSignUpTimer] = useState(0);
 
-  const setUserData = async (supabaseUser: SupabaseUser | null) => {
-    if (!supabaseUser) {
-      setUser(null);
-      localStorage.removeItem('userData');
-      return;
-    }
-
+  const setUserData = async (supabaseUser: SupabaseUser) => {
     try {
-      const { data: profile, error: fetchError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('gemini_api_key')
         .eq('id', supabaseUser.id)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Error fetching profile:', fetchError);
-        throw fetchError;
-      }
-
+      const session = await getCurrentSession();
+      
       const userData: User = {
         id: supabaseUser.id,
         email: supabaseUser.email!,
-        geminiApiKey: profile?.gemini_api_key || null
+        geminiApiKey: profile?.gemini_api_key || null,
+        access_token: session?.access_token
       };
 
       setUser(userData);
       localStorage.setItem('userData', JSON.stringify(userData));
     } catch (error) {
-      console.error('Error in setUserData:', error);
+      console.error('Error setting user data:', error);
       setUser(null);
       localStorage.removeItem('userData');
     }
@@ -71,23 +51,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // Clear any stale data
-        localStorage.removeItem('userData');
-        
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          throw error;
-        }
-        
+        const session = await getCurrentSession();
         if (session?.user) {
           await setUserData(session.user);
-        } else {
-          setUser(null);
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
-        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -96,49 +65,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
+      if (session?.user) {
         await setUserData(session.user);
-      } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+      } else {
         setUser(null);
         localStorage.removeItem('userData');
       }
     });
 
-    const handleStorageChange = async (e: StorageEvent) => {
-      if (e.key === 'supabase.auth.token') {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          await setUserData(session.user);
-        } else {
-          setUser(null);
-          localStorage.removeItem('userData');
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          await setUserData(currentUser);
         }
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       subscription.unsubscribe();
-      window.removeEventListener('storage', handleStorageChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
-
-  useEffect(() => {
-    let interval: number;
-    if (isSignUpDisabled && signUpTimer > 0) {
-      interval = window.setInterval(() => {
-        setSignUpTimer((prev) => {
-          if (prev <= 1) {
-            setIsSignUpDisabled(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => window.clearInterval(interval);
-  }, [isSignUpDisabled, signUpTimer]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -153,6 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (data.user) {
         await setUserData(data.user);
+        window.dispatchEvent(new Event('supabase.auth.change'));
       }
 
       return {};
@@ -177,14 +128,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error.message.includes('rate_limit')) {
           setIsSignUpDisabled(true);
           setSignUpTimer(60);
+          setTimeout(() => {
+            setIsSignUpDisabled(false);
+            setSignUpTimer(0);
+          }, 60000);
         }
         throw error;
       }
 
       if (data.user) {
         await setUserData(data.user);
-        setIsSignUpDisabled(true);
-        setSignUpTimer(60);
+        window.dispatchEvent(new Event('supabase.auth.change'));
       }
     } catch (error) {
       console.error('Sign up error:', error);
@@ -197,13 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
-      // Clear all auth-related data
       setUser(null);
       localStorage.removeItem('userData');
-      localStorage.removeItem('supabase.auth.token');
-      
-      // Force reload the page to ensure clean state
-      window.location.reload();
+      window.dispatchEvent(new Event('supabase.auth.change'));
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;

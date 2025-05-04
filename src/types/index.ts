@@ -19,5 +19,14 @@ export interface Project {
 export interface User {
   id: string;
   email: string;
-  geminiApiKey?: string;
+  geminiApiKey?: string | null;
+  access_token?: string;
+}
+
+export interface Session {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token: string;
+  user: User;
 }

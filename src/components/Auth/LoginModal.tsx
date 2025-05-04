@@ -14,7 +14,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, signUp, isSignUpDisabled, signUpTimer, loading } = useAuth();
+  const { signIn, signUp, isSignUpDisabled, signUpTimer } = useAuth();
 
   useEffect(() => {
     if (!isOpen) {
@@ -22,7 +22,6 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
       setPassword('');
       setError('');
       setIsLoading(false);
-      setIsSignUp(false);
     }
   }, [isOpen]);
 
@@ -47,10 +46,11 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
         if (result?.error) {
           throw new Error(result.error);
         }
+        // Trigger session sync across tabs
+        window.dispatchEvent(new Event('storage'));
       }
-      if (onSuccess) {
-        onSuccess();
-      }
+      
+      if (onSuccess) onSuccess();
     } catch (err) {
       console.error('Auth error:', err);
       setError(err instanceof Error ? err.message : 'Invalid email or password');
@@ -59,27 +59,34 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
     }
   };
 
-  if (!isOpen) return null;
+
+    if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="max-w-md w-full mx-4">
-        <div className="relative">
-          <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg blur opacity-25"></div>
-          <div className="relative bg-white rounded-lg shadow-xl">
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 flex justify-between items-center rounded-t-lg">
-              <h3 className="font-semibold text-lg">
+        <div className="relative bg-white rounded-lg shadow-lg">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">
                 {isSignUp ? 'Create Account' : 'Sign In'}
               </h3>
               <button 
                 onClick={onClose}
-                className="text-white hover:text-blue-100 transition-colors"
+                className="text-gray-500 hover:text-gray-700"
                 disabled={isLoading}
               >
-                <X className="h-5 w-5" />
+                <X className="h-6 w-6" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6">
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2 text-sm">
                   <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>

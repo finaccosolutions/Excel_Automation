@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProjectProvider } from './context/ProjectContext';
@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Chat from './pages/Chat';
 import Projects from './pages/Projects';
 import LoginModal from './components/Auth/LoginModal';
+import { initializeSessionSync } from './context/sessionSync';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
@@ -28,10 +29,8 @@ function AppContent() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* NavBar is always visible at the top */}
       <NavBar onLoginClick={() => setLoginModalOpen(true)} />
       
-      {/* Main content area with routes */}
       <main className="flex-1 overflow-auto">
         <Routes>
           <Route path="/" element={<Home />} />
@@ -48,7 +47,6 @@ function AppContent() {
         </Routes>
       </main>
 
-      {/* Login Modal */}
       <LoginModal 
         isOpen={loginModalOpen} 
         onClose={() => setLoginModalOpen(false)}
@@ -61,6 +59,11 @@ function AppContent() {
 }
 
 function App() {
+  useEffect(() => {
+    const cleanup = initializeSessionSync();
+    return cleanup;
+  }, []);
+
   return (
     <Router>
       <AuthProvider>
