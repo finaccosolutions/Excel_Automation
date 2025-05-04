@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Loader2, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -15,6 +15,16 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { signIn, signUp, isSignUpDisabled, signUpTimer, loading } = useAuth();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setEmail('');
+      setPassword('');
+      setError('');
+      setIsLoading(false);
+      setIsSignUp(false);
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,9 +48,9 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) =
           throw new Error(result.error);
         }
       }
-      setEmail('');
-      setPassword('');
-      onSuccess?.();
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (err) {
       console.error('Auth error:', err);
       setError(err instanceof Error ? err.message : 'Invalid email or password');

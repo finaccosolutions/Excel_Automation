@@ -63,32 +63,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('userData', JSON.stringify(userData));
     } catch (error) {
       console.error('Error in setUserData:', error);
-      const userData: User = {
-        id: supabaseUser.id,
-        email: supabaseUser.email!,
-        geminiApiKey: null
-      };
-      setUser(userData);
-      localStorage.setItem('userData', JSON.stringify(userData));
+      setUser(null);
+      localStorage.removeItem('userData');
     }
   };
 
   useEffect(() => {
     const initAuth = async () => {
       try {
-        setLoading(true);
-        const { data: { session } } = await supabase.auth.getSession();
+        // Clear any stale data
+        localStorage.removeItem('userData');
+        
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          throw error;
+        }
         
         if (session?.user) {
           await setUserData(session.user);
         } else {
           setUser(null);
-          localStorage.removeItem('userData');
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
         setUser(null);
-        localStorage.removeItem('userData');
       } finally {
         setLoading(false);
       }
@@ -105,8 +104,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
+    const handleStorageChange = async (e: StorageEvent) => {
+      if (e.key === 'supabase.auth.token') {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           await setUserData(session.user);
@@ -117,11 +116,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       subscription.unsubscribe();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -163,27 +162,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Add this function inside your AuthProvider component
-const checkSessionPersisted = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    setUser(null);
-    localStorage.removeItem('userData');
-  }
-};
-
-// Add this useEffect hook
-useEffect(() => {
-  const handleStorageEvent = async (e: StorageEvent) => {
-    if (e.key === 'sb-auth-token') {
-      await checkSessionPersisted();
-    }
-  };
-
-  window.addEventListener('storage', handleStorageEvent);
-  return () => window.removeEventListener('storage', handleStorageEvent);
-}, []);
-
   const signUp = async (email: string, password: string) => {
     if (isSignUpDisabled) {
       throw new Error(`Please wait ${signUpTimer} seconds before trying again`);
@@ -219,8 +197,13 @@ useEffect(() => {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
+      // Clear all auth-related data
       setUser(null);
       localStorage.removeItem('userData');
+      localStorage.removeItem('supabase.auth.token');
+      
+      // Force reload the page to ensure clean state
+      window.location.reload();
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
